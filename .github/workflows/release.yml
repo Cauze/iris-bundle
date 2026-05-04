@@ -66,6 +66,7 @@ jobs:
             echo "tag=$TAG"
             echo "name=$NAME"
             echo "prerelease=$PRERELEASE"
+            echo "short_sha=$SHORT_SHA"
           } >> "$GITHUB_OUTPUT"
 
       - name: Setup
@@ -156,15 +157,9 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
           prerelease: ${{ steps.meta.outputs.prerelease }}
-          generate_release_notes: true
+          generate_release_notes: false
           body: |
-            Branch: `${{ github.event.inputs.iris_branch }}`
-            Commit: `${{ github.event.inputs.iris_commit }}`
-
-            - lune `${{ env.LUNE_VERSION }}`
-            - wax `${{ env.WAX_VERSION }}`
-            - darklua `${{ env.DARKLUA_VERSION }}`
-            - rojo `${{ env.ROJO_VERSION }}`
+            [${{ github.event.inputs.iris_branch }}@${{ steps.meta.outputs.short_sha }}](https://github.com/SirMallard/Iris/commit/${{ steps.iris.outputs.commit_sha }}) using `lune ${{ env.LUNE_VERSION }}` `wax ${{ env.WAX_VERSION }}` `darklua ${{ env.DARKLUA_VERSION }}` `rojo ${{ env.ROJO_VERSION }}`
           files: |
             dist/iris.lua
             dist/iris.min.lua
