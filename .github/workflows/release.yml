@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      iris_branch:
+        description: "Branch"
+        required: true
+        default: "main"
+      iris_commit:
+        description: "Commit"
+        required: true
+      release_type:
+        description: "Type"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - release
+          - preview
+      release_name:
+        description: "Name"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    env:
+      LUNE_VERSION: "0.10.4"
+      WAX_VERSION: "0.4.2"
+      DARKLUA_VERSION: "0.18.0"
+      ROJO_VERSION: "7.6.1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH_RAW="${{ github.event.inputs.iris_branch }}"
+          BRANCH_NORMALIZED="$(echo "$BRANCH_RAW" | tr '/' '_' | tr -cd 'A-Za-z0-9._-')"
+          SHORT_SHA="${{ github.event.inputs.iris_commit }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          RELEASE_KEY="${{ github.event.inputs.release_type }}.${BRANCH_NORMALIZED}.${SHORT_SHA}"
+          TAG="${RELEASE_KEY}"
+
+          if [[ -n "${{ github.event.inputs.release_name }}" ]]; then
+            NAME="${{ github.event.inputs.release_name }}"
+          else
+            NAME="${RELEASE_KEY}"
+          fi
+
+          if [[ "${{ github.event.inputs.release_type }}" == "preview" ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
+
+          {
+            echo "tag=$TAG"
+            echo "name=$NAME"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools"
+
+          curl -fsSL "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip" -o "$RUNNER_TEMP/lune.zip"
+          unzip -q "$RUNNER_TEMP/lune.zip" -d "$RUNNER_TEMP/tools"
+
+          curl -fsSL "https://github.com/seaofvoices/darklua/releases/download/v${DARKLUA_VERSION}/darklua-linux-x86_64.zip" -o "$RUNNER_TEMP/darklua.zip"
+          unzip -q "$RUNNER_TEMP/darklua.zip" -d "$RUNNER_TEMP/tools"
+
+          curl -fsSL "https://github.com/rojo-rbx/rojo/releases/download/v${ROJO_VERSION}/rojo-${ROJO_VERSION}-linux-x86_64.zip" -o "$RUNNER_TEMP/rojo.zip"
+          unzip -q "$RUNNER_TEMP/rojo.zip" -d "$RUNNER_TEMP/tools"
+
+          curl -fsSL "https://github.com/latte-soft/wax/releases/download/${WAX_VERSION}/wax.luau" -o "$RUNNER_TEMP/wax.luau"
+
+          chmod +x "$RUNNER_TEMP/tools/lune" "$RUNNER_TEMP/tools/darklua" "$RUNNER_TEMP/tools/rojo"
+          {
+            echo "$RUNNER_TEMP/tools"
+          } >> "$GITHUB_PATH"
+
+      - name: Audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          lune --version
+          darklua --version
+          rojo --version
+
+      - name: Clone
+        id: iris
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ github.event.inputs.iris_branch }}" https://github.com/SirMallard/Iris.git src
+          cd src
+          git fetch --depth 1 origin "${{ github.event.inputs.iris_commit }}"
+          git checkout "${{ github.event.inputs.iris_commit }}"
+          COMMIT_SHA="$(git rev-parse HEAD)"
+          if [[ "$COMMIT_SHA" != "${{ github.event.inputs.iris_commit }}" ]]; then
+            echo "Resolved commit '$COMMIT_SHA' did not match requested commit '${{ github.event.inputs.iris_commit }}'" >&2
+            exit 1
+          fi
+          echo "$COMMIT_SHA" > "$GITHUB_WORKSPACE/IRIS_COMMIT.txt"
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd src
+
+          if [[ ! -f "default.project.json" ]]; then
+            echo "Missing required file: src/default.project.json" >&2
+            exit 1
+          fi
+
+          lune run "$RUNNER_TEMP/wax.luau" bundle \
+            input=default.project.json \
+            output="$GITHUB_WORKSPACE/dist/iris.lua" \
+            ci-mode=true
+
+          lune run "$RUNNER_TEMP/wax.luau" bundle \
+            input=default.project.json \
+            output="$GITHUB_WORKSPACE/dist/iris.min.lua" \
+            minify=true \
+            darklua-config-path="$GITHUB_WORKSPACE/release.darklua.json" \
+            ci-mode=true
+
+          if [[ -f "LICENSE" ]]; then
+            cp "LICENSE" "$GITHUB_WORKSPACE/dist/LICENSE"
+          elif [[ -f "LICENSE.txt" ]]; then
+            cp "LICENSE.txt" "$GITHUB_WORKSPACE/dist/LICENSE"
+          elif [[ -f "LICENSE.md" ]]; then
+            cp "LICENSE.md" "$GITHUB_WORKSPACE/dist/LICENSE"
+          else
+            echo "Could not find Iris license file in src (expected LICENSE, LICENSE.txt, or LICENSE.md)." >&2
+            exit 1
+          fi
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          generate_release_notes: true
+          body: |
+            Branch: `${{ github.event.inputs.iris_branch }}`
+            Commit: `${{ github.event.inputs.iris_commit }}`
+
+            - lune `${{ env.LUNE_VERSION }}`
+            - wax `${{ env.WAX_VERSION }}`
+            - darklua `${{ env.DARKLUA_VERSION }}`
+            - rojo `${{ env.ROJO_VERSION }}`
+          files: |
+            dist/iris.lua
+            dist/iris.min.lua
+            dist/LICENSE
