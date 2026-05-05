@@ -31,7 +31,6 @@ jobs:
     env:
       LUNE_VERSION: "0.10.4"
       WAX_VERSION: "0.4.2"
-      DARKLUA_VERSION: "0.18.0"
       ROJO_VERSION: "7.6.1"
 
     steps:
@@ -78,15 +77,12 @@ jobs:
           curl -fsSL "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip" -o "$RUNNER_TEMP/lune.zip"
           unzip -q "$RUNNER_TEMP/lune.zip" -d "$RUNNER_TEMP/tools"
 
-          curl -fsSL "https://github.com/seaofvoices/darklua/releases/download/v${DARKLUA_VERSION}/darklua-linux-x86_64.zip" -o "$RUNNER_TEMP/darklua.zip"
-          unzip -q "$RUNNER_TEMP/darklua.zip" -d "$RUNNER_TEMP/tools"
-
           curl -fsSL "https://github.com/rojo-rbx/rojo/releases/download/v${ROJO_VERSION}/rojo-${ROJO_VERSION}-linux-x86_64.zip" -o "$RUNNER_TEMP/rojo.zip"
           unzip -q "$RUNNER_TEMP/rojo.zip" -d "$RUNNER_TEMP/tools"
 
           curl -fsSL "https://github.com/latte-soft/wax/releases/download/${WAX_VERSION}/wax.luau" -o "$RUNNER_TEMP/wax.luau"
 
-          chmod +x "$RUNNER_TEMP/tools/lune" "$RUNNER_TEMP/tools/darklua" "$RUNNER_TEMP/tools/rojo"
+          chmod +x "$RUNNER_TEMP/tools/lune" "$RUNNER_TEMP/tools/rojo"
           {
             echo "$RUNNER_TEMP/tools"
           } >> "$GITHUB_PATH"
@@ -96,7 +92,6 @@ jobs:
         run: |
           set -euo pipefail
           lune --version
-          darklua --version
           rojo --version
 
       - name: Clone
@@ -133,13 +128,6 @@ jobs:
             output="$GITHUB_WORKSPACE/dist/iris.lua" \
             ci-mode=true
 
-          lune run "$RUNNER_TEMP/wax.luau" bundle \
-            input=default.project.json \
-            output="$GITHUB_WORKSPACE/dist/iris.min.lua" \
-            minify=true \
-            darklua-config-path="$GITHUB_WORKSPACE/release.darklua.json" \
-            ci-mode=true
-
           if [[ -f "LICENSE" ]]; then
             cp "LICENSE" "$GITHUB_WORKSPACE/dist/LICENSE"
           elif [[ -f "LICENSE.txt" ]]; then
@@ -159,8 +147,7 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease }}
           generate_release_notes: false
           body: |
-            [${{ github.event.inputs.iris_branch }}@${{ steps.meta.outputs.short_sha }}](https://github.com/SirMallard/Iris/commit/${{ steps.iris.outputs.commit_sha }}) using `lune ${{ env.LUNE_VERSION }}` `wax ${{ env.WAX_VERSION }}` `darklua ${{ env.DARKLUA_VERSION }}` `rojo ${{ env.ROJO_VERSION }}`
+            [${{ github.event.inputs.iris_branch }}@${{ steps.meta.outputs.short_sha }}](https://github.com/SirMallard/Iris/commit/${{ steps.iris.outputs.commit_sha }}) using `lune ${{ env.LUNE_VERSION }}` `wax ${{ env.WAX_VERSION }}` `rojo ${{ env.ROJO_VERSION }}`
           files: |
             dist/iris.lua
-            dist/iris.min.lua
             dist/LICENSE
